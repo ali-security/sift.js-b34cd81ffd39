@@ -551,8 +551,9 @@ describe(__filename + "#", function () {
       [{ v: 1 }],
       false,
     ],
-    [{ $where: "this.v === 1" }, [{ v: 1 }, { v: 2 }], [{ v: 1 }]],
-    [{ $where: "obj.v === 1" }, [{ v: 1 }, { v: 2 }], [{ v: 1 }]],
+    // string $where queries are compiled with `new Function`, so they're only
+    // allowed when SIFT_ALLOW_STRING_WHERE is set - covered in
+    // ./prototype-pollution-test.js
 
     // $elemMatch
     [

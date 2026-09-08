@@ -12,7 +12,7 @@ import {
   numericalOperation,
   containsOperation,
 } from "./core";
-import { Key, comparable, isFunction, isArray } from "./utils";
+import { Key, comparable, isFunction, isArray, hasOwnProperty } from "./utils";
 
 class $Ne extends BaseOperation<any> {
   readonly propop = true;
@@ -216,7 +216,7 @@ class $Exists extends BaseOperation<boolean> {
     if (!leaf) {
       this.done = true;
       this.keep = !this.params;
-    } else if (owner.hasOwnProperty(key) === this.params) {
+    } else if (hasOwnProperty(owner, key) === this.params) {
       this.done = true;
       this.keep = true;
     }
@@ -342,7 +342,14 @@ export const $regex = (
   options: Options,
 ) =>
   new EqualsOperation(
-    new RegExp(pattern, owneryQuery.$options),
+    // $options is only honored when it sits on the query itself - an inherited
+    // one may come from a polluted prototype.
+    new RegExp(
+      pattern,
+      hasOwnProperty(owneryQuery, "$options")
+        ? (owneryQuery as any).$options
+        : undefined,
+    ),
     owneryQuery,
     options,
   );
@@ -401,6 +408,29 @@ export const $size = (
   options: Options,
 ) => new $Size(params, ownerQuery, options, "$size");
 export const $options = () => null;
+
+// `process.env.CSP_ENABLED` is swapped for `true` when the CSP bundle is built,
+// so it has to stay written out verbatim here. Both reads go through try/catch
+// because `process` is not defined at all in a browser - the CSP bundle still
+// reports CSP mode there, and the regular bundle reports "not enabled" instead
+// of throwing a ReferenceError.
+
+const isCspEnabled = () => {
+  try {
+    return !!process.env.CSP_ENABLED;
+  } catch (e) {
+    return false;
+  }
+};
+
+const isStringWhereAllowed = () => {
+  try {
+    return !!process.env.SIFT_ALLOW_STRING_WHERE;
+  } catch (e) {
+    return false;
+  }
+};
+
 export const $where = (
   params: string | Function,
   ownerQuery: Query<any>,
@@ -410,12 +440,23 @@ export const $where = (
 
   if (isFunction(params)) {
     test = params;
-  } else if (!process.env.CSP_ENABLED) {
-    test = new Function("obj", "return " + params);
-  } else {
+  } else if (isCspEnabled()) {
     throw new Error(
       `In CSP mode, sift does not support strings in "$where" condition`,
     );
+  } else if (!isStringWhereAllowed()) {
+    // Strings given to "$where" are compiled with `new Function`, so a query
+    // that comes from an untrusted source - or from a polluted prototype -
+    // would be able to run arbitrary code. Only functions are accepted by
+    // default; setting the SIFT_ALLOW_STRING_WHERE environment variable opts
+    // back into compiling strings.
+    throw new Error(
+      `sift does not support strings in "$where" condition by default. ` +
+        `Use a function instead, or set the SIFT_ALLOW_STRING_WHERE ` +
+        `environment variable to allow compiling strings.`,
+    );
+  } else {
+    test = new Function("obj", "return " + params);
   }
 
   return new EqualsOperation((b) => test.bind(b)(b), ownerQuery, options);

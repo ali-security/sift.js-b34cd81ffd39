@@ -27,8 +27,21 @@ export const coercePotentiallyNull = (value: any) =>
 export const isArray = typeChecker<Array<any>>("Array");
 export const isObject = typeChecker<Object>("Object");
 export const isFunction = typeChecker<Function>("Function");
+
+const objectHasOwnProperty = Object.prototype.hasOwnProperty;
+
+/**
+ * Own-property check that ignores the prototype chain. Used everywhere a
+ * query (or an object being tested) is enumerated so that properties coming
+ * from a polluted `Object.prototype` are never picked up as queries,
+ * operations, or values.
+ */
+
+export const hasOwnProperty = (item: any, key: any) =>
+  item != null && objectHasOwnProperty.call(item, key);
+
 export const isProperty = (item: any, key: any) => {
-  return item.hasOwnProperty(key) && !isFunction(item[key]);
+  return hasOwnProperty(item, key) && !isFunction(item[key]);
 };
 export const isVanillaObject = (value) => {
   return (
@@ -66,6 +79,7 @@ export const equals = (a, b) => {
       return false;
     }
     for (const key in a) {
+      if (!hasOwnProperty(a, key)) continue;
       if (!equals(a[key], b[key])) return false;
     }
     return true;

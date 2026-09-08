@@ -7,6 +7,7 @@ import {
   equals,
   coercePotentiallyNull,
   isProperty,
+  hasOwnProperty,
 } from "./utils";
 
 export interface Operation<TItem> {
@@ -303,7 +304,7 @@ export class EqualsOperation<TParam> extends BaseOperation<TParam> {
     this._test = createTester(this.params, this.options.compare);
   }
   next(item, key: Key, parent: any) {
-    if (!Array.isArray(parent) || parent.hasOwnProperty(key)) {
+    if (!Array.isArray(parent) || hasOwnProperty(parent, key)) {
       if (this._test(item, key, parent)) {
         this.done = true;
         this.keep = true;
@@ -368,8 +369,11 @@ const throwUnsupportedOperation = (name: string) => {
 };
 
 export const containsOperation = (query: any, options: Options) => {
+  // only own keys are considered here - inherited properties may come from a
+  // polluted prototype and must never be treated as part of the query.
   for (const key in query) {
-    if (options.operations.hasOwnProperty(key) || key.charAt(0) === "$")
+    if (!hasOwnProperty(query, key)) continue;
+    if (hasOwnProperty(options.operations, key) || key.charAt(0) === "$")
       return true;
   }
   return false;
@@ -448,12 +452,21 @@ const createQueryOperations = (
     selfOperations.push(new EqualsOperation(query, query, options));
     return [selfOperations, nestedOperations];
   }
+  // only own keys are considered here - inherited properties may come from a
+  // polluted prototype and must never be turned into operations. Without this
+  // guard `Object.prototype.$where = "..."` would be picked up (and executed)
+  // even for an empty query.
   for (const key in query) {
-    if (options.operations.hasOwnProperty(key)) {
+    if (!hasOwnProperty(query, key)) continue;
+    if (hasOwnProperty(options.operations, key)) {
       const op = createNamedOperation(key, query[key], query, options);
 
       if (op) {
-        if (!op.propop && parentKey && !options.operations[parentKey]) {
+        if (
+          !op.propop &&
+          parentKey &&
+          !hasOwnProperty(options.operations, parentKey)
+        ) {
           throw new Error(
             `Malformed query. ${key} cannot be matched against property.`,
           );
